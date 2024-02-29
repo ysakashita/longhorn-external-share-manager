@@ -28,5 +28,5 @@ jobs:
           provenance: false
           push: true
           tags: |
-            ysakashita/longhorn-external-share-manager:latest
             ysakashita/longhorn-external-share-manager:${{ github.ref_name }}
+            ysakashita/longhorn-external-share-manager:latest
