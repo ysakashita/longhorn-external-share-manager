@@ -69,7 +69,7 @@ If you want to stop publishing outside Kubernetes, please delete the auto-genera
 You deploy manifests for Longhorn external manager.
 
 ```
-$ kubectl apply -k manifests/
+$ kubectl apply -f manifests/
 ```
 
 :memo:
