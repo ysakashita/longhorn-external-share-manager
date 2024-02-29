@@ -63,7 +63,7 @@ func (r *reconcileSVC) Reconcile(ctx context.Context, request reconcile.Request)
 				continue
 			}
 
-			externalSahre := "false"
+			externalSahre := ""
 			if externalSahre, ok = pvc.Annotations["longhorn.external.share"]; ok {
 				if strings.EqualFold(externalSahre, "true") {
 					r.log.Info("Creating new TypeLoadBalancer's service. external-" + pvname)
