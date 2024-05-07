@@ -64,7 +64,7 @@ spec:
       containers:
       - name: longhorn-external-share-manager
         imagePullPolicy: Always
-        image: ysakashita/longhorn-external-share-manager:v0.1.2
+        image: ysakashita/longhorn-external-share-manager:v0.1.3
         args: ["-zap-encoder=console", "-zap-time-encoding=iso8601"]
         resources:
           limits:
