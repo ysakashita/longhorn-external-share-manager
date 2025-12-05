@@ -15,7 +15,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["services"]
-  verbs: ["get", "list", "watch", "create", "patch"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
 - apiGroups: [""]
   resources: ["persistentvolumes", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]

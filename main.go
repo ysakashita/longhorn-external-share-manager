@@ -5,17 +5,16 @@ import (
 	"os"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 var log = logf.Log.WithName("longhorn-external-share-manager")
@@ -63,21 +62,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	c, err := controller.New("longhorn-external-share-manager", mgr, controller.Options{
-		Reconciler: &reconcileSVC{
+	if err := builder.ControllerManagedBy(mgr).
+		For(&corev1.Service{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
+		Complete(&reconcileSVC{
 			client: mgr.GetClient(),
 			log:    log.WithName("reconciler"),
-		},
-		// Do not reconcile concurrently
-		MaxConcurrentReconciles: 1,
-	})
-	if err != nil {
+		}); err != nil {
 		mainLog.Error(err, "Unable to set up controller")
-		os.Exit(1)
-	}
-
-	if err := c.Watch(source.Kind(mgr.GetCache(), &corev1.Service{}), &handler.EnqueueRequestForObject{}); err != nil {
-		mainLog.Error(err, "Unable to watch Services")
 		os.Exit(1)
 	}
 
