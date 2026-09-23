@@ -10,23 +10,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Chaeckout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
       - name: Login to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and Push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v5
         with:
           context: .
+          file: images/controller/Dockerfile
           platforms: linux/amd64,linux/arm64
           provenance: false
           push: true
           tags: |
             ysakashita/longhorn-external-share-manager:${{ github.ref_name }}
             ysakashita/longhorn-external-share-manager:latest
+      - name: Build and Push (SMB gateway)
+        uses: docker/build-push-action@v5
+        with:
+          context: images/smb-gateway
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          push: true
+          tags: |
+            ysakashita/longhorn-external-share-manager-smb-gateway:${{ github.ref_name }}
+            ysakashita/longhorn-external-share-manager-smb-gateway:latest

@@ -45,106 +45,98 @@ func (r *reconcileSVC) Reconcile(ctx context.Context, request reconcile.Request)
 }
 
 func (r *reconcileSVC) processService(ctx context.Context, svc corev1.Service) {
-	labels := svc.GetLabels()
+	// Consider share-manager name as PV name
+	pvname, ok := svc.GetLabels()["longhorn.io/share-manager"]
+	if !ok {
+		return
+	}
 
-	// Check if the external-share service has already been created
-	lbsvc := &corev1.Service{}
+	pv, ok := r.getPV(ctx, pvname)
+	if !ok {
+		return
+	}
+
+	pvc, ok := r.getPVC(ctx, *pv)
+	if !ok {
+		return
+	}
+
+	nfsEnabled := strings.EqualFold(pvc.Annotations["longhorn.external.share"], "true")
+	smbEnabled := strings.EqualFold(pvc.Annotations[smbAnnotation], "true")
+	smbAuthEnabled := strings.EqualFold(pvc.Annotations[smbAuthAnnotation], "true")
+
+	r.reconcileNFSLoadBalancer(ctx, svc, *pv, nfsEnabled)
+	r.reconcileSMBGateway(ctx, svc, *pv, smbEnabled, smbAuthEnabled)
+}
+
+// getPV fetches the PersistentVolume backing a share-manager Service. It
+// logs and returns ok=false if the PV can't be found or fetched.
+func (r *reconcileSVC) getPV(ctx context.Context, name string) (*corev1.PersistentVolume, bool) {
+	pv := &corev1.PersistentVolume{}
+	err := r.client.Get(ctx, client.ObjectKey{Name: name}, pv)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			r.log.Info("PV not found (may have been deleted)", "pv", name)
+		} else {
+			r.log.Error(err, "Unable to get pv", "name", name)
+		}
+		return nil, false
+	}
+	return pv, true
+}
+
+// getPVC fetches the PersistentVolumeClaim claiming the given PersistentVolume.
+// It logs and returns ok=false if the PV has no ClaimRef or the PVC can't be
+// found or fetched.
+func (r *reconcileSVC) getPVC(ctx context.Context, pv corev1.PersistentVolume) (*corev1.PersistentVolumeClaim, bool) {
+	if pv.Spec.ClaimRef == nil {
+		r.log.Info("PV has no ClaimRef, skipping", "pv", pv.Name)
+		return nil, false
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: pv.Spec.ClaimRef.Namespace, Name: pv.Spec.ClaimRef.Name}, pvc)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			r.log.Info("PVC not found (may have been deleted)", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
+		} else {
+			r.log.Error(err, "Unable to get pvc", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
+		}
+		return nil, false
+	}
+	return pvc, true
+}
+
+// reconcileNFSLoadBalancer creates (or deletes) the LoadBalancer Service
+// that exposes the share-manager pod's NFS server directly to clients
+// outside the cluster.
+func (r *reconcileSVC) reconcileNFSLoadBalancer(ctx context.Context, svc corev1.Service, pv corev1.PersistentVolume, enabled bool) {
 	lbsvcName := PREFIX_SVC + svc.Name
+
+	lbsvc := &corev1.Service{}
 	err := r.client.Get(ctx, client.ObjectKey{Namespace: svc.Namespace, Name: lbsvcName}, lbsvc)
 	if err != nil && !apierrors.IsNotFound(err) {
-		// Unexpected error
 		r.log.Error(err, "Unable to get LoadBalancer service", "name", lbsvcName)
 		return
 	}
+
 	if err == nil {
-		// Service already exists, check if it should be deleted
-		// Check if annotation still exists and is true
-		shouldDelete := false
-		if pvname, ok := labels["longhorn.io/share-manager"]; ok {
-			pv := &corev1.PersistentVolume{}
-			err := r.client.Get(ctx, client.ObjectKey{Namespace: corev1.NamespaceAll, Name: pvname}, pv)
-			if apierrors.IsNotFound(err) {
-				// PV deleted, service will be cleaned by owner reference
-				return
-			}
-			if err != nil {
-				r.log.Error(err, "Unable to get pv", "name", pvname)
-				return
-			}
-
-			if pv.Spec.ClaimRef == nil {
-				r.log.Info("PV has no ClaimRef, skipping", "pv", pvname)
-				return
-			}
-
-			pvc := &corev1.PersistentVolumeClaim{}
-			err = r.client.Get(ctx, client.ObjectKey{Namespace: pv.Spec.ClaimRef.Namespace, Name: pv.Spec.ClaimRef.Name}, pvc)
-			if apierrors.IsNotFound(err) {
-				// PVC deleted, service will be cleaned by owner reference
-				return
-			}
-			if err != nil {
-				r.log.Error(err, "Unable to get pvc", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
-				return
-			}
-
-			// Check if annotation is missing or not "true"
-			externalShare, ok := pvc.Annotations["longhorn.external.share"]
-			if !ok || !strings.EqualFold(externalShare, "true") {
-				shouldDelete = true
-			}
-		}
-
-		if shouldDelete {
+		// Service already exists; delete it if it's no longer wanted.
+		if !enabled {
 			r.log.Info("Deleting external LoadBalancer service (annotation removed)", "name", lbsvcName)
-			err = r.client.Delete(ctx, lbsvc)
-			if err != nil && !apierrors.IsNotFound(err) {
+			if err := r.client.Delete(ctx, lbsvc); err != nil && !apierrors.IsNotFound(err) {
 				r.log.Error(err, "Failed to delete LoadBalancer service", "name", lbsvcName)
 			}
 		}
 		return
 	}
 
-	// Consider share-manager name as PV name
-	if pvname, ok := labels["longhorn.io/share-manager"]; ok {
-
-		pv := &corev1.PersistentVolume{}
-		err := r.client.Get(ctx, client.ObjectKey{Namespace: corev1.NamespaceAll, Name: pvname}, pv)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				r.log.Info("PV not found (may have been deleted)", "pv", pvname)
-			} else {
-				r.log.Error(err, "Unable to get pv", "name", pvname)
-			}
-			return
-		}
-
-		if pv.Spec.ClaimRef == nil {
-			r.log.Info("PV has no ClaimRef, skipping", "pv", pvname)
-			return
-		}
-
-		pvc := &corev1.PersistentVolumeClaim{}
-		err = r.client.Get(ctx, client.ObjectKey{Namespace: pv.Spec.ClaimRef.Namespace, Name: pv.Spec.ClaimRef.Name}, pvc)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				r.log.Info("PVC not found (may have been deleted)", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
-			} else {
-				r.log.Error(err, "Unable to get pvc", "namespace", pv.Spec.ClaimRef.Namespace, "name", pv.Spec.ClaimRef.Name)
-			}
-			return
-		}
-
-		externalShare := ""
-		if externalShare, ok = pvc.Annotations["longhorn.external.share"]; ok {
-			if strings.EqualFold(externalShare, "true") {
-				r.log.Info("Creating new TypeLoadBalancer's service", "name", "external-"+pvname)
-				newlb := createLBObject(svc, *pv)
-				err = r.client.Create(ctx, &newlb)
-				if err != nil {
-					r.log.Error(err, "Can't create TypeLoadBalancer's Service")
-				}
-			}
+	// Service doesn't exist yet; create it if wanted.
+	if enabled {
+		r.log.Info("Creating new TypeLoadBalancer's service", "name", lbsvcName)
+		newlb := createLBObject(svc, pv)
+		if err := r.client.Create(ctx, &newlb); err != nil {
+			r.log.Error(err, "Can't create TypeLoadBalancer's Service")
 		}
 	}
 }
