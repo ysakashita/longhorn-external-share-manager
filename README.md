@@ -55,8 +55,14 @@ $ sudo mount -t nfs -o vers=4.2 192.168.0.121:/pvc-xxxx /mnt/lhvol1
 ```
 
 :memo: 
-Longhorn's NFS server version is 4.2.
-When mounting a volume (Step 4), use a Client that supports NFS v4.2.
+Longhorn's NFS server (Ganesha) supports NFSv4.0, 4.1 and 4.2.
+When mounting a volume (Step 4), use a Client that supports one of these versions.
+
+:memo:
+macOS's NFS client does not support NFSv4.2 (see `man mount_nfs`: "Currently NFSv4 is the highest supported version with a minor version of zero or one"). From macOS, mount with `vers=4.1` instead:
+```
+$ sudo mount -t nfs -o vers=4.1 192.168.0.121:/pvc-xxxx /mnt/lhvol1
+```
 
 :memo: 
 The auto-generated services are deleted when the target PV (Persistent Volume) is deleted, as well as when annotation is changed.
