@@ -16,7 +16,7 @@ const (
 	smbAnnotation     = "longhorn.external.share.smb"
 	smbAuthAnnotation = "longhorn.external.share.smb.auth"
 	smbPrefix         = "smb-"
-	smbGatewayImage   = "ysakashita/longhorn-external-share-manager-smb-gateway:v0.1.0"
+	smbGatewayImage   = "ysakashita/longhorn-external-share-manager-smb-gateway:v0.2.1"
 	smbShareName      = "share"
 	smbSecretUser     = "longhorn"
 	smbMountPath      = "/export"
